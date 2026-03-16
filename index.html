@@ -891,6 +891,8 @@
       }
 
       // Collect form data
+      const signOffRadio = document.querySelector('input[name="signOff"]:checked');
+      
       state.formData = {
         message,
         sender,
@@ -898,10 +900,10 @@
         keyMessage,
         specific1: document.getElementById('specific1')?.value || '',
         specific2: document.getElementById('specific2')?.value || '',
-        nickname: document.getElementById('nickname').value.trim(),
-        signOff: document.querySelector('input[name="signOff"]:checked').value,
-        signOffCustom: document.getElementById('signOffCustom').value.trim(),
-        additional: document.getElementById('additional').value.trim()
+        nickname: document.getElementById('nickname')?.value?.trim() || '',
+        signOff: signOffRadio ? signOffRadio.value : 'no',
+        signOffCustom: document.getElementById('signOffCustom')?.value?.trim() || '',
+        additional: document.getElementById('additional')?.value?.trim() || ''
       };
 
       btn.disabled = true;
@@ -909,9 +911,16 @@
 
       try {
         const card = MESSAGE_CARDS.find(c => c.id === state.selectedCard);
+        
+        // Helper function to safely escape text for JSON
+        const safeText = (text) => {
+          if (!text) return '';
+          return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
+        };
+        
         const voiceContext = state.voiceProfile.samples.filter(s => s.trim()).length > 0
           ? `DENI'S WRITING STYLE (learn from these examples):
-${state.voiceProfile.samples.filter(s => s.trim()).map((s, i) => `Example ${i + 1}: "${s}"`).join('\n')}
+${state.voiceProfile.samples.filter(s => s.trim()).map((s, i) => `Example ${i + 1}: ${safeText(s)}`).join('\n')}
 
 STYLE PREFERENCES:
 - Emoji usage: ${state.voiceProfile.emojiUsage}
@@ -931,15 +940,15 @@ IMPORTANT: Match Deni's natural voice, tone, and style from the examples above.`
 ${voiceContext}
 
 MESSAGE TYPE: ${card.title}
-MESSAGE RECEIVED: "${state.formData.message}"
-FROM: ${state.formData.sender}
+MESSAGE RECEIVED: ${safeText(state.formData.message)}
+FROM: ${safeText(state.formData.sender)}
 DESIRED TONE: ${state.formData.tone}
 KEY MESSAGE: ${state.formData.keyMessage}
-${card.specific1 && state.formData.specific1 ? `${card.specific1.label}: ${state.formData.specific1}` : ''}
-${card.specific2 && state.formData.specific2 ? `${card.specific2.label}: ${state.formData.specific2}` : ''}
-${state.formData.nickname ? `NICKNAME TO USE: ${state.formData.nickname}` : ''}
-${state.formData.signOff === 'yes' ? 'SIGN OFF: End with "- Deni"' : state.formData.signOff === 'other' ? `SIGN OFF: End with "- ${state.formData.signOffCustom}"` : 'NO SIGN OFF'}
-${state.formData.additional ? `ADDITIONAL: ${state.formData.additional}` : ''}${contextNote}
+${card.specific1 && state.formData.specific1 ? `${card.specific1.label}: ${safeText(state.formData.specific1)}` : ''}
+${card.specific2 && state.formData.specific2 ? `${card.specific2.label}: ${safeText(state.formData.specific2)}` : ''}
+${state.formData.nickname ? `NICKNAME TO USE: ${safeText(state.formData.nickname)}` : ''}
+${state.formData.signOff === 'yes' ? 'SIGN OFF: End with "- Deni"' : state.formData.signOff === 'other' ? `SIGN OFF: End with "- ${safeText(state.formData.signOffCustom)}"` : 'NO SIGN OFF'}
+${state.formData.additional ? `ADDITIONAL: ${safeText(state.formData.additional)}` : ''}${contextNote}
 
 Generate 2 different response messages that:
 1. Sound EXACTLY like Deni based on her writing samples
@@ -1018,15 +1027,57 @@ NO explanations, NO quotation marks, NO extra commentary.`;
         render();
 
       } catch (error) {
-        alert('Error: ' + error.message + '\n\nPlease try again.');
+        console.error('Full error:', error);
+        let errorMsg = 'Error generating responses. ';
+        
+        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMsg += 'Check your internet connection.';
+        } else if (error.message.includes('API key')) {
+          errorMsg += 'API key issue - contact support.';
+        } else {
+          errorMsg += error.message;
+        }
+        
+        alert(errorMsg + '\n\nPlease try again.');
         btn.disabled = false;
         btn.innerHTML = '✨ Run with AI';
       }
     }
 
     function copyResponse(text) {
-      navigator.clipboard.writeText(text);
-      alert('Copied! ✅\n\nNow go send it, then come back and click "I sent it!" below');
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text)
+          .then(() => {
+            alert('Copied! ✅\n\nNow go send it, then come back and click "I sent it!" below');
+          })
+          .catch(() => {
+            // Fallback for mobile/older browsers
+            fallbackCopy(text);
+          });
+      } else {
+        // Fallback for mobile/older browsers
+        fallbackCopy(text);
+      }
+    }
+
+    function fallbackCopy(text) {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-9999px';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      try {
+        document.execCommand('copy');
+        alert('Copied! ✅\n\nNow go send it, then come back and click "I sent it!" below');
+      } catch (err) {
+        alert('Could not copy automatically. Please manually copy:\n\n' + text);
+      }
+      
+      document.body.removeChild(textArea);
     }
 
     // Initial render
