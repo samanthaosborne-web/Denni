@@ -1,9 +1,0 @@
-{
-  "name": "deni-message-helper",
-  "version": "1.0.0",
-  "description": "Message response helper for managing anxiety",
-  "private": true,
-  "scripts": {
-    "dev": "vercel dev"
-  }
-}
