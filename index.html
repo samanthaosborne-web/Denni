@@ -912,15 +912,14 @@
       try {
         const card = MESSAGE_CARDS.find(c => c.id === state.selectedCard);
         
-        // Helper function to safely escape text for JSON
-        const safeText = (text) => {
-          if (!text) return '';
-          return text.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n');
-        };
+        const isBusyCard = state.selectedCard === 'busy-later';
+        const contextNote = isBusyCard 
+          ? `\n\nSPECIAL NOTE: Deni is feeling too anxious to respond properly right now. Keep it SHORT, kind, and low-pressure.`
+          : '';
         
         const voiceContext = state.voiceProfile.samples.filter(s => s.trim()).length > 0
           ? `DENI'S WRITING STYLE (learn from these examples):
-${state.voiceProfile.samples.filter(s => s.trim()).map((s, i) => `Example ${i + 1}: ${safeText(s)}`).join('\n')}
+${state.voiceProfile.samples.filter(s => s.trim()).map((s, i) => `Example ${i + 1}: ${s}`).join('\n')}
 
 STYLE PREFERENCES:
 - Emoji usage: ${state.voiceProfile.emojiUsage}
@@ -930,25 +929,20 @@ STYLE PREFERENCES:
 IMPORTANT: Match Deni's natural voice, tone, and style from the examples above.`
           : 'Write in a warm, genuine, casual tone.';
 
-        const isBusyCard = state.selectedCard === 'busy-later';
-        const contextNote = isBusyCard 
-          ? `\n\nSPECIAL NOTE: Deni is feeling too anxious to respond properly right now. Keep it SHORT, kind, and low-pressure.`
-          : '';
-
         const prompt = `You are helping Deni craft an authentic response to a message. Deni has anxiety around responding.
 
 ${voiceContext}
 
 MESSAGE TYPE: ${card.title}
-MESSAGE RECEIVED: ${safeText(state.formData.message)}
-FROM: ${safeText(state.formData.sender)}
+MESSAGE RECEIVED: ${state.formData.message}
+FROM: ${state.formData.sender}
 DESIRED TONE: ${state.formData.tone}
 KEY MESSAGE: ${state.formData.keyMessage}
-${card.specific1 && state.formData.specific1 ? `${card.specific1.label}: ${safeText(state.formData.specific1)}` : ''}
-${card.specific2 && state.formData.specific2 ? `${card.specific2.label}: ${safeText(state.formData.specific2)}` : ''}
-${state.formData.nickname ? `NICKNAME TO USE: ${safeText(state.formData.nickname)}` : ''}
-${state.formData.signOff === 'yes' ? 'SIGN OFF: End with "- Deni"' : state.formData.signOff === 'other' ? `SIGN OFF: End with "- ${safeText(state.formData.signOffCustom)}"` : 'NO SIGN OFF'}
-${state.formData.additional ? `ADDITIONAL: ${safeText(state.formData.additional)}` : ''}${contextNote}
+${card.specific1 && state.formData.specific1 ? `${card.specific1.label}: ${state.formData.specific1}` : ''}
+${card.specific2 && state.formData.specific2 ? `${card.specific2.label}: ${state.formData.specific2}` : ''}
+${state.formData.nickname ? `NICKNAME TO USE: ${state.formData.nickname}` : ''}
+${state.formData.signOff === 'yes' ? 'SIGN OFF: End with "- Deni"' : state.formData.signOff === 'other' ? `SIGN OFF: End with "- ${state.formData.signOffCustom}"` : 'NO SIGN OFF'}
+${state.formData.additional ? `ADDITIONAL: ${state.formData.additional}` : ''}${contextNote}
 
 Generate 2 different response messages that:
 1. Sound EXACTLY like Deni based on her writing samples
@@ -975,70 +969,82 @@ NO explanations, NO quotation marks, NO extra commentary.`;
         });
 
         if (!response.ok) {
-          const error = await response.json();
+          const error = await response.json().catch(() => ({ error: 'Server error' }));
           throw new Error(error.error || 'Failed to generate responses');
         }
 
         const data = await response.json();
         const text = data.content.find(c => c.type === 'text')?.text || '';
 
-        console.log('Raw AI response:', text); // Debug log
-
-        // Parse responses - be very flexible
+        // Parse responses - completely fail-safe approach
         let responses = [];
         
-        // Method 1: Try to find "Response 1:" and "Response 2:" markers
-        const response1Match = text.match(/Response\s*1\s*:?\s*(.+?)(?=Response\s*2|$)/is);
-        const response2Match = text.match(/Response\s*2\s*:?\s*(.+?)$/is);
+        try {
+          // Method 1: Look for "Response 1:" and "Response 2:"
+          const lines = text.split('\n');
+          let response1Lines = [];
+          let response2Lines = [];
+          let currentSection = null;
+          
+          for (const line of lines) {
+            if (line.match(/Response\s*1/i)) {
+              currentSection = 1;
+              const content = line.replace(/Response\s*1\s*:?\s*/i, '').trim();
+              if (content) response1Lines.push(content);
+            } else if (line.match(/Response\s*2/i)) {
+              currentSection = 2;
+              const content = line.replace(/Response\s*2\s*:?\s*/i, '').trim();
+              if (content) response2Lines.push(content);
+            } else if (line.trim()) {
+              if (currentSection === 1) response1Lines.push(line.trim());
+              if (currentSection === 2) response2Lines.push(line.trim());
+            }
+          }
+          
+          if (response1Lines.length > 0) responses.push(response1Lines.join(' '));
+          if (response2Lines.length > 0) responses.push(response2Lines.join(' '));
+        } catch (e) {
+          // If parsing fails, just split the text
+        }
         
-        if (response1Match && response1Match[1]) {
-          responses.push(response1Match[1].trim());
-        }
-        if (response2Match && response2Match[1]) {
-          responses.push(response2Match[1].trim());
-        }
-
-        // Method 2: If that didn't work, try splitting by numbered responses
+        // Fallback: If we don't have 2 responses, split by double newlines
         if (responses.length < 2) {
-          const numbered = text.match(/1\.\s*(.+?)(?=2\.|$)/is);
-          const numbered2 = text.match(/2\.\s*(.+?)$/is);
-          if (numbered && numbered[1]) responses.push(numbered[1].trim());
-          if (numbered2 && numbered2[1]) responses.push(numbered2[1].trim());
-        }
-
-        // Method 3: If still nothing, split by double newlines and take first two non-empty parts
-        if (responses.length < 2) {
-          const parts = text.split(/\n\n+/).filter(p => p.trim().length > 10);
+          const parts = text.split(/\n\n+/).filter(p => p.trim().length > 5);
           responses = parts.slice(0, 2).map(p => p.trim());
         }
-
-        // Final fallback: use the whole text as one response and create a second default one
+        
+        // Final fallback: Use default responses
         if (responses.length === 0) {
-          responses = [text.trim() || 'Thank you so much! 💙', 'I really appreciate this ☺️'];
+          responses = ['Thank you so much! 💙', 'I really appreciate this ☺️'];
         } else if (responses.length === 1) {
           responses.push('Thank you! That means a lot 💜');
         }
-
-        // Clean up responses - remove any "Response X:" prefixes that might have snuck through
-        responses = responses.map(r => r.replace(/^Response\s*\d+\s*:?\s*/i, '').trim());
+        
+        // Clean up
+        responses = responses.map(r => {
+          return r.replace(/^Response\s*\d+\s*:?\s*/i, '')
+                  .replace(/^\d+\.\s*/, '')
+                  .trim();
+        });
 
         state.responses = responses.slice(0, 2);
         state.view = 'responses';
         render();
 
       } catch (error) {
-        console.error('Full error:', error);
-        let errorMsg = 'Error generating responses. ';
+        let errorMsg = 'Something went wrong. Please try again.';
         
-        if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
-          errorMsg += 'Check your internet connection.';
-        } else if (error.message.includes('API key')) {
-          errorMsg += 'API key issue - contact support.';
-        } else {
-          errorMsg += error.message;
+        if (error && error.message) {
+          if (error.message.includes('fetch')) {
+            errorMsg = 'Connection error. Check your internet.';
+          } else if (error.message.includes('API')) {
+            errorMsg = 'API error. Please try again.';
+          } else {
+            errorMsg = error.message;
+          }
         }
         
-        alert(errorMsg + '\n\nPlease try again.');
+        alert(errorMsg);
         btn.disabled = false;
         btn.innerHTML = '✨ Run with AI';
       }
