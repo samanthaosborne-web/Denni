@@ -829,6 +829,11 @@
     function submitBeforeAnxiety() {
       state.anxietyBefore = state.anxietyAfter;
       state.showAnxietyModal = false;
+      
+      // Remove modal from DOM
+      const modal = document.getElementById('anxietyModal');
+      if (modal) modal.remove();
+      
       state.view = 'form';
       render();
     }
@@ -849,6 +854,11 @@
       if (improvement > 0) state.stats.improvementCount++;
       
       state.showAnxietyModal = false;
+      
+      // Remove modal from DOM
+      const modal = document.getElementById('anxietyModal');
+      if (modal) modal.remove();
+      
       saveState();
       resetForm();
     }
