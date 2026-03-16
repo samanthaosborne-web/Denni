@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Deni's Message Helper 💌</title>
-  <link rel="icon" type="image/png" href="Deni Favicon.png">
   <style>
     * {
       margin: 0;
@@ -974,31 +973,47 @@ NO explanations, NO quotation marks, NO extra commentary.`;
         const data = await response.json();
         const text = data.content.find(c => c.type === 'text')?.text || '';
 
-        // Parse responses
-        const lines = text.trim().split('\n');
-        const responses = [];
-        let currentResponse = '';
-        let inResponse = false;
+        console.log('Raw AI response:', text); // Debug log
 
-        for (const line of lines) {
-          if (line.startsWith('Response 1:')) {
-            inResponse = true;
-            currentResponse = line.replace('Response 1:', '').trim();
-          } else if (line.startsWith('Response 2:')) {
-            if (currentResponse) responses.push(currentResponse);
-            currentResponse = line.replace('Response 2:', '').trim();
-            inResponse = true;
-          } else if (inResponse && line.trim()) {
-            currentResponse += (currentResponse ? ' ' : '') + line.trim();
-          }
+        // Parse responses - be very flexible
+        let responses = [];
+        
+        // Method 1: Try to find "Response 1:" and "Response 2:" markers
+        const response1Match = text.match(/Response\s*1\s*:?\s*(.+?)(?=Response\s*2|$)/is);
+        const response2Match = text.match(/Response\s*2\s*:?\s*(.+?)$/is);
+        
+        if (response1Match && response1Match[1]) {
+          responses.push(response1Match[1].trim());
         }
-        if (currentResponse) responses.push(currentResponse);
+        if (response2Match && response2Match[1]) {
+          responses.push(response2Match[1].trim());
+        }
 
-        state.responses = responses.length >= 2 ? responses.slice(0, 2) : [
-          'Thank you so much! 💙',
-          'I really appreciate this ☺️'
-        ];
+        // Method 2: If that didn't work, try splitting by numbered responses
+        if (responses.length < 2) {
+          const numbered = text.match(/1\.\s*(.+?)(?=2\.|$)/is);
+          const numbered2 = text.match(/2\.\s*(.+?)$/is);
+          if (numbered && numbered[1]) responses.push(numbered[1].trim());
+          if (numbered2 && numbered2[1]) responses.push(numbered2[1].trim());
+        }
 
+        // Method 3: If still nothing, split by double newlines and take first two non-empty parts
+        if (responses.length < 2) {
+          const parts = text.split(/\n\n+/).filter(p => p.trim().length > 10);
+          responses = parts.slice(0, 2).map(p => p.trim());
+        }
+
+        // Final fallback: use the whole text as one response and create a second default one
+        if (responses.length === 0) {
+          responses = [text.trim() || 'Thank you so much! 💙', 'I really appreciate this ☺️'];
+        } else if (responses.length === 1) {
+          responses.push('Thank you! That means a lot 💜');
+        }
+
+        // Clean up responses - remove any "Response X:" prefixes that might have snuck through
+        responses = responses.map(r => r.replace(/^Response\s*\d+\s*:?\s*/i, '').trim());
+
+        state.responses = responses.slice(0, 2);
         state.view = 'responses';
         render();
 
